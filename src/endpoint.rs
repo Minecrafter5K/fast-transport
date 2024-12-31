@@ -4,23 +4,28 @@ use crate::{
     socket::FastTransportSocket,
 };
 
-use std::sync::Arc;
+use std::{ net::SocketAddr, sync::Arc };
 use tokio::sync::{ mpsc, Mutex };
 
 pub struct Endpoint {
     connections: Mutex<Vec<ConnectionMeta>>,
     incoming_rx: Mutex<mpsc::Receiver<Connection>>,
     incoming_tx: mpsc::Sender<Connection>,
+    outgoing_rx: Mutex<mpsc::Receiver<(Packet, SocketAddr)>>,
+    outgoing_tx: mpsc::Sender<(Packet, SocketAddr)>,
 }
 
 impl Endpoint {
     pub fn new<T: FastTransportSocket + Send + 'static>(socket: T) -> Arc<Self> {
         let (incoming_tx, incoming_rx) = mpsc::channel::<Connection>(100);
+        let (outgoing_tx, outgoing_rx) = mpsc::channel::<(Packet, SocketAddr)>(100);
 
         let endpoint = Endpoint {
             connections: Mutex::new(Vec::new()),
             incoming_rx: Mutex::new(incoming_rx),
             incoming_tx,
+            outgoing_rx: Mutex::new(outgoing_rx),
+            outgoing_tx,
         };
 
         // TODO: kill task when endpoint is dropped
@@ -33,22 +38,39 @@ impl Endpoint {
         let mut incoming_rx = self.incoming_rx.lock().await;
         incoming_rx.recv().await
     }
+
+    pub async fn connect(&self, remote_addr: SocketAddr) -> Connection {
+        let (tx, rx): (mpsc::Sender<Packet>, mpsc::Receiver<Packet>) = mpsc::channel(20);
+
+        let connection_meta = ConnectionMeta::new(0, tx);
+        let connection = Connection::new(0, remote_addr, rx, self.outgoing_tx.clone());
+
+        let mut connections = self.connections.lock().await;
+        connections.push(connection_meta);
+
+        connection
+    }
 }
 
 async fn handle_endpoint<T: FastTransportSocket>(socket: T, endpoint: Arc<Endpoint>) {
     loop {
+        let mut outgoing_rx = endpoint.outgoing_rx.lock().await;
         tokio::select! {
-            packet = socket.receive_single() => handle_packet(packet, endpoint.clone()).await,
-            // response = rx1_send.recv() => {
-            //     fast_socket.send(response.unwrap(), client_address).await;
-            // }
+            (packet, remote_addr) = socket.receive_single() => handle_packet(packet, remote_addr, endpoint.clone()).await,
+            Some((packet, addr)) = outgoing_rx.recv() => {
+                socket.send(packet, addr).await;
+            }
         }
     }
 }
 
-async fn handle_packet(packet: crate::packet::Packet, endpoint: Arc<Endpoint>) {
+async fn handle_packet(
+    packet: crate::packet::Packet,
+    remote_addr: SocketAddr,
+    endpoint: Arc<Endpoint>
+) {
     match packet.get_id() {
-        0 => handle_new_connection(packet, endpoint).await,
+        0 => handle_new_connection(packet, remote_addr, endpoint).await,
         connection_id => {
             let connections = endpoint.connections.lock().await;
             let connection = connections.iter().find(|c| c.get_id() == connection_id);
@@ -65,16 +87,15 @@ async fn handle_packet(packet: crate::packet::Packet, endpoint: Arc<Endpoint>) {
 }
 
 #[allow(unused_variables)]
-async fn handle_new_connection(packet: Packet, endpoint: Arc<Endpoint>) {
+async fn handle_new_connection(packet: Packet, remote_addr: SocketAddr, endpoint: Arc<Endpoint>) {
     let mut connections = endpoint.connections.lock().await;
     let connection_id = (connections.len() as u64) + 1;
-    let (tx1, rx1): (mpsc::Sender<Packet>, mpsc::Receiver<Packet>) = mpsc::channel(20);
-    let (tx2, rx2): (mpsc::Sender<Packet>, mpsc::Receiver<Packet>) = mpsc::channel(20);
+    let (tx, rx): (mpsc::Sender<Packet>, mpsc::Receiver<Packet>) = mpsc::channel(20);
 
-    let connection_meta = ConnectionMeta::new(connection_id, tx2, rx1);
+    let connection_meta = ConnectionMeta::new(connection_id, tx);
     connections.push(connection_meta);
 
-    let connection = Connection::new(connection_id, tx1, rx2);
+    let connection = Connection::new(connection_id, remote_addr, rx, endpoint.outgoing_tx.clone());
     endpoint.incoming_tx.send(connection).await.unwrap();
 }
 

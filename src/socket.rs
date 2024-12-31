@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use crate::packet::Packet;
 
 pub trait FastTransportSocket {
@@ -6,5 +8,5 @@ pub trait FastTransportSocket {
         data: Packet,
         addr: std::net::SocketAddr
     ) -> impl std::future::Future<Output = ()> + Send;
-    fn receive_single(&self) -> impl std::future::Future<Output = Packet> + Send;
+    fn receive_single(&self) -> impl std::future::Future<Output = (Packet, SocketAddr)> + Send;
 }

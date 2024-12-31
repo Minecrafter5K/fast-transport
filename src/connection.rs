@@ -1,28 +1,33 @@
+use std::net::SocketAddr;
+
 use tokio::sync::mpsc;
 
 use crate::packet::Packet;
 
 pub struct Connection {
     connection_id: u64,
-    packet_tx: mpsc::Sender<Packet>,
+    remote_addr: SocketAddr,
+    packet_tx: mpsc::Sender<(Packet, SocketAddr)>,
     packet_rx: mpsc::Receiver<Packet>,
 }
 
 impl Connection {
     pub fn new(
         connection_id: u64,
-        from_connection_tx: mpsc::Sender<Packet>,
-        to_connection_rx: mpsc::Receiver<Packet>
+        remote_addr: SocketAddr,
+        to_connection_rx: mpsc::Receiver<Packet>,
+        from_connection_tx: mpsc::Sender<(Packet, SocketAddr)>
     ) -> Self {
         Connection {
             connection_id,
+            remote_addr,
             packet_tx: from_connection_tx,
             packet_rx: to_connection_rx,
         }
     }
 
     pub async fn send(&self, packet: Packet) {
-        self.packet_tx.send(packet).await.unwrap();
+        self.packet_tx.send((packet, self.remote_addr)).await.unwrap();
     }
     pub async fn recv(&mut self) -> Packet {
         self.packet_rx.recv().await.unwrap()
@@ -42,19 +47,13 @@ impl Drop for Connection {
 pub struct ConnectionMeta {
     connection_id: u64,
     to_connection_tx: mpsc::Sender<Packet>,
-    from_connection_rx: mpsc::Receiver<Packet>,
 }
 
 impl ConnectionMeta {
-    pub fn new(
-        connection_id: u64,
-        to_connection_tx: mpsc::Sender<Packet>,
-        from_connection_rx: mpsc::Receiver<Packet>
-    ) -> Self {
+    pub fn new(connection_id: u64, to_connection_tx: mpsc::Sender<Packet>) -> Self {
         ConnectionMeta {
             connection_id,
             to_connection_tx,
-            from_connection_rx,
         }
     }
 
@@ -64,9 +63,5 @@ impl ConnectionMeta {
 
     pub fn get_tx(&self) -> mpsc::Sender<Packet> {
         self.to_connection_tx.clone()
-    }
-
-    pub fn get_rx(&mut self) -> &mut mpsc::Receiver<Packet> {
-        &mut self.from_connection_rx
     }
 }
