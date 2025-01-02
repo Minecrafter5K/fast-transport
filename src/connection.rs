@@ -41,7 +41,7 @@ impl Connection {
             Packet::Data(_, data) => data.get_data(),
             _ => panic!("unexpected packet type"),
         };
-        buf.copy_from_slice(data);
+        buf[..data.len()].copy_from_slice(data);
         Ok(data.len())
     }
 
