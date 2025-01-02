@@ -53,7 +53,7 @@ impl Connection {
         }
     }
     pub(crate) async fn recv_packet(&mut self) -> Packet {
-        self.packet_rx.recv().await.unwrap()
+        self.packet_rx.recv().await.expect("recv_packet failed")
     }
 
     pub fn get_id(&self) -> u32 {

@@ -21,8 +21,7 @@ pub(crate) async fn handshake_server(
 
     conn.send_packet(Packet::new_server_hello(conn_id)).await.unwrap();
 
-    let ack: Packet = conn.recv_packet().await;
-    println!("Received ConnAck packet: {:?}", ack.get_connection_id());
+    let _ack: Packet = conn.recv_packet().await;
 
     conn.state = ConnectionState::Connected;
     Ok(())
@@ -48,9 +47,7 @@ pub(crate) async fn handshake_client(
 
     let server_hello = new_connection_rx.recv().await.unwrap();
     let conn_id = server_hello.get_connection_id();
-    println!("Received ServerHello packet for new connection ID: {:?}", conn_id);
 
-    // let server_data = Packet::
     let mut conn = Connection::new(conn_id, remote_addr, to_connection_rx, from_connection_tx);
 
     match conn.send_packet(Packet::new_ack(conn_id)).await {

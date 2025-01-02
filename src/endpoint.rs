@@ -98,7 +98,7 @@ async fn handle_packet(packet: Packet, remote_addr: SocketAddr, endpoint: Arc<En
                 None => println!("Connection not found"),
                 Some(connection) => {
                     let tx = connection.get_tx();
-                    let send = tx.send(other_packet).await;
+                    tx.send(other_packet).await.expect("Failed to send packet to connection");
                 }
             }
         }
@@ -116,6 +116,7 @@ async fn handle_new_connection(
 
     let connection_meta = ConnectionMeta::new(connection_id, tx);
     connections.push(connection_meta);
+    drop(connections);
 
     let mut connection = Connection::new(
         connection_id,
