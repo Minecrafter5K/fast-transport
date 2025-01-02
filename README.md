@@ -52,7 +52,7 @@ currently unused
 
 ### Payload
 
-ClientHello, ConnAck and Data payloads are currently empty
+ClientHello and ConnAck payloads are currently empty
 
 #### `Data` Payload
 
